@@ -7,4 +7,3 @@ Algorithm".
 
 Features:
 * Bad scaling
-
