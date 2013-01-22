@@ -11,6 +11,7 @@ typedef struct thread_args_s
     gsl_rng *rng;
     int mu;
     unsigned long long measure;
+    
 } thread_args_t;
 
 

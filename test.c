@@ -3,7 +3,7 @@
  *
  * Author: Jonatan Linden <jonatan.linden@it.uu.se>
  *
- * Time-stamp: <2013-01-08 16:57:29 jonatanlinden>
+ * Time-stamp: <2013-01-22 13:45:05 jonatanlinden>
  */
 
 #define _GNU_SOURCE
@@ -18,6 +18,7 @@
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #include <limits.h>
+#include <float.h>
 
 #include "j_util.h"
 #include "prioq_simple.h"
@@ -68,7 +69,7 @@ main (int argc, char **argv)
 	    exit(EXIT_FAILURE);
 	}
     }
-
+    
     /* INIT */
     end = mcycles * 1000000L + NOW();
 
@@ -80,9 +81,9 @@ main (int argc, char **argv)
 	cpu_map[i] = i;
 
     // initialize the queue.
-    E_0(sq = sq_init(5, 0, INT_MAX, nthreads));
+    E_0(sq = sq_init(11, 0.0, DBL_MAX, nthreads));
 
-    for (int i = 0; i < 128; i++)
+    for (int i = 0; i < 4096; i++)
 	sq_add(sq, i, i, 0);
 
     for (int i = 0; i < nthreads; i++)
@@ -125,7 +126,7 @@ static inline int
 work(thread_args_t *ta)
 {
     int old;
-    int idx = gsl_rng_uniform_int (ta->rng, 256000) + 1;
+    int idx = gsl_rng_uniform (ta->rng);
     return sq_update(sq, idx, idx, &old, ta->tid);
 }
 

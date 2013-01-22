@@ -5,22 +5,21 @@
 #include <gsl/gsl_rng.h>
 #include "hp.h"
 
-#define key_t int
+#define key_t double
 #define val_t int
 
 #define NULL_VAL 0
 
+
 typedef struct sq_node_s {
   key_t key;
   val_t val;
-    
-  int topLevel;
-
-  int marked;		   
+  uint topLevel;
+  uint64_t marked;
   int fullyLinked;
   pthread_spinlock_t lock;
     
-  struct sq_node_s *nexts[1];
+    struct sq_node_s *nexts[1];
     
 } sq_node_t;
 
@@ -47,7 +46,7 @@ typedef struct sq_s {
 
 
 extern sq_t *
-sq_init(const int maxLevel, const int min, const int max, const int nthreads);
+sq_init(const uint maxLevel, const key_t min, const key_t max, const int nthreads);
 
 extern int
 sq_add(sq_t * q, const key_t key, const val_t val, const int tid);

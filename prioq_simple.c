@@ -107,7 +107,8 @@ sq_search(const sq_t *q, const key_t key,
 	   sq_node_t ***_preds,
 	  sq_node_t ***_succs, const int tid)
 {
-    int lFound, level;
+    int lFound;
+    int level;
     sq_node_t *pred, *curr;
     sq_node_t **preds = *_preds;
     sq_node_t **succs = *_succs;
@@ -127,8 +128,8 @@ restart:
 #else
 	curr = pred->nexts[level];
 #endif
-
-	while (key > curr->key || key >= curr->key) {
+        // insert after nodes with the same key
+	while (key >= curr->key) {
 
 #ifdef HP
 	    /* promote the peek ptr to hz pointer */
@@ -155,10 +156,55 @@ restart:
     return lFound;
 }
 
+static void
+sq_search_preds(const sq_t *q, sq_node_t *node,
+		sq_node_t ***_preds, const int tid)
+{
+    int level;
+    sq_node_t *pred, *curr;
+    sq_node_t **preds = *_preds;
+
+restart:
+    pred = q->head;
+
+    for (level = node->topLevel; level >= 0; level--) {
+
+#ifdef HP
+	/* be careful here */
+	curr = pptr(q, &pred->nexts[level], tid);
+	if (NULL == curr) {
+	    goto restart;
+	}
+#else
+	curr = pred->nexts[level];
+#endif
+
+	while (curr != node) {
+
+#ifdef HP
+	    /* promote the peek ptr to hz pointer */
+	    pred = lptr(q, &curr, level, tid);
+
+	    /* advance the peek pointer */
+	    curr = pptr(q, &pred->nexts[level], tid);
+	    if (NULL == curr) {
+		goto restart;
+	    }
+#else
+	    pred = curr;
+	    curr = pred->nexts[level];
+#endif
+	}
+      
+	preds[level] = pred;
+    }
+}
+
+
 
 /* Allocates and returns a pointer to a priority queue. */
 sq_t *
-sq_init(const int maxLevel, const key_t min, const key_t max, int nthreads)
+sq_init(const uint maxLevel, const key_t min, const key_t max, int nthreads)
 {
     sq_t *q;
     sq_node_t *head, *tail;
@@ -224,7 +270,7 @@ clean_ptrs(sq_t *q, int tid)
 int
 sq_add(sq_t *q, const key_t key, const val_t val, const int tid)
 {
-    int topLevel, highestLocked, level;
+    uint topLevel, highestLocked, level;
     sq_node_t *newNode, *pred, *succ, *prev;
     int valid;
     sq_node_t ** preds, **succs;
@@ -276,7 +322,7 @@ sq_add(sq_t *q, const key_t key, const val_t val, const int tid)
 	for (level = 0; (level <= topLevel); level++) {
 	    pred = preds[level];	
 	    succ = succs[level];
-	    assert(!pred->marked);
+	    //assert(!pred->marked);
 	    assert(pred->nexts[level] == succ);
 	}
 
@@ -351,7 +397,7 @@ sq_delmin(sq_t *q, sq_node_t **node, int tid)
 	/* point of no return */
 	
 	/* unlink */
-	for (level = del->topLevel; level >= 0; level--) {
+	for (level = (int) del->topLevel; level >= 0; level--) {
 	    q->head->nexts[level] = del->nexts[level];
 	}
 
@@ -366,6 +412,105 @@ sq_delmin(sq_t *q, sq_node_t **node, int tid)
 #endif
     return 1;
 }
+
+
+/* Alternative strategy to delete smallest key from queue. Blocks if
+ * queue is empty. */
+int
+sq_alt_delmin(sq_t *q, sq_node_t **node, int tid)
+{
+    int level, highestLocked, valid;
+    sq_node_t *del, *pred, *prev;
+    sq_node_t **preds;
+
+    // load workspace
+    preds = q->thread_ws[tid].preds;
+
+    /* repeat until success */
+    while (1) {
+	// delete the first elem of the queue
+
+	del = q->head;
+	
+	do {
+#ifdef HP
+	    del = pptr(q, &del->nexts[0], tid);
+	    if (NULL == del) continue;
+#else
+	    del = del->nexts[0];
+#endif
+	    assert(del);
+
+	    // fail if queue is empty.
+	    if (del == q->tail)
+		return 0;
+
+	} while(asm_xchg(&del->marked, 1));
+
+	// we have unique delete access to del 
+	
+	// block if inserting (could just as well just lock?)
+	while (!del->fullyLinked)
+	    ;
+
+	lock(&del->lock);
+	
+	while(1) {
+	    sq_search_preds(q, del, &preds, tid);
+	    
+	    valid = 1;
+	    // lock preds
+	    for (level = 0; (valid) && (level <= del->topLevel); level++) {
+		pred = preds[level];
+
+		assert(pred);
+	
+		if (pred != prev)
+		{
+		    lock(&pred->lock);
+		    highestLocked = level;
+		    prev = pred;
+		}
+		valid &= pred->nexts[level] == del && !pred->marked;
+	    }
+      
+	    if (!valid) {
+		unlock_preds(preds, highestLocked);
+		continue;  
+	    }
+	    break;
+	    
+	}
+	
+	assert(valid);
+
+    
+	/* unlink */
+	for (level = del->topLevel; level >= 0; level--) {
+	    preds[level]->nexts[level] = del->nexts[level];
+	}
+
+        // unlock the updated nodes
+	unlock_preds(preds, highestLocked);
+	unlock(&del->lock);
+	
+	
+	break; //goto end
+    }
+
+    // clean threads working area.
+    clean_ptrs(q, tid);
+
+    *node = del;
+#ifdef HP
+    retire_node(q->hp, del);
+#endif
+    return 1;
+}
+
+
+
+
 
 /* pprint helper function */
 static unsigned int 

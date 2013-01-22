@@ -92,14 +92,14 @@ asm_atomic_cmpxchg_int32(int32_t *var, int32_t old, int32_t new) {
 }
 
 static inline uint64_t __attribute__((always_inline))
-xchg (uint64_t *a, uint64_t b)
+asm_xchg (uint64_t *addr, uint64_t val)
 {
-    __asm__ ("lock xchg %0, %1;"
-	     : "+m" (*a), "+r" (b));
+    __asm__ __volatile__("lock xchg %0, %1;"
+			 : "+m" (*addr), "+r" (val)
+			 :: "memory", "cc");
 
-    return b;
+    return val;
 }
-
 
 #else
 #error Unsupported architecture
