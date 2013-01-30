@@ -3,7 +3,7 @@
  *
  * Author: Jonatan Linden <jonatan.linden@it.uu.se>
  *
- * Time-stamp: <2013-01-30 15:09:26 jonatanlinden>
+ * Time-stamp: <2013-01-30 16:01:51 jonatanlinden>
  */
 
 #define _GNU_SOURCE
@@ -108,7 +108,7 @@ main (int argc, char **argv)
 
     sq_node_t *oldnode;
     for (int i = 1; i < 4096; i++)
-	sq_del(sq, i, 1, &oldnode, 0);
+	sq_del(sq, i, NULL, &oldnode, 0);
     
     sq_print(sq);
     

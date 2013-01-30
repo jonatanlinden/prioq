@@ -429,7 +429,8 @@ sq_del(sq_t *q, const key_t key, const sq_node_t *addr, sq_node_t **node, const 
     succs = q->thread_ws[tid].succs;
 
     while (1) {
-	if ((lFound = sq_search(q, key, &preds, &succs, addr, tid)) == -1) 
+	// HACK: bogus addr pointer
+	if ((lFound = sq_search(q, key, &preds, &succs, (sq_node_t *)1, tid)) == -1) 
 	    goto ret0;
 
 	del = succs[lFound];
