@@ -105,7 +105,7 @@ destroy_node(sq_node_t *node)
 static int
 sq_search(const sq_t *q, const key_t key,
 	   sq_node_t ***_preds,
-	  sq_node_t ***_succs, const int tid)
+	  sq_node_t ***_succs, const sq_node_t *addr, const int tid)
 {
     int lFound;
     int level;
@@ -129,7 +129,7 @@ restart:
 	curr = pred->nexts[level];
 #endif
         // insert after nodes with the same key
-	while (key >= curr->key) {
+	while ((!addr && (key >= curr->key)) || (addr && (key > curr->key))) {
 
 #ifdef HP
 	    /* promote the peek ptr to hz pointer */
@@ -288,7 +288,7 @@ sq_add(sq_t *q, const key_t key, const val_t val, const int tid)
 	/* prepare preds and succs, insert after any already existing
 	 * keys with the same value as key.
 	 */
-	sq_search(q, key, &preds, &succs, tid);
+	sq_search(q, key, &preds, &succs, NULL, tid);
 
 	/* Try to lock all preds, from lowest to highest
 	 */
@@ -315,6 +315,7 @@ sq_add(sq_t *q, const key_t key, const val_t val, const int tid)
       
 	if (!valid) {
 	    unlock_preds(preds, highestLocked);
+	    clean_ptrs(q, tid);
 	    continue;  // retry adding the node, just update preds
 	}
 
@@ -411,6 +412,83 @@ sq_delmin(sq_t *q, sq_node_t **node, int tid)
     retire_node(q->hp, del);
 #endif
     return 1;
+}
+
+/* Delete node with key key if it exists. Set node to point to the removed node. Usage of addr is currently unimplemented. */
+int
+sq_del(sq_t *q, const key_t key, const sq_node_t *addr, sq_node_t **node, const int tid)
+{
+    int topLevel = -1;
+    int lFound, level, highestLocked;
+    sq_node_t *succ, *pred, *del, *prev;
+    int valid, flag;
+    sq_node_t ** preds, **succs;
+    int isMarked = 0;
+    
+    preds = q->thread_ws[tid].preds;
+    succs = q->thread_ws[tid].succs;
+
+    while (1) {
+	if ((lFound = sq_search(q, key, &preds, &succs, addr, tid)) == -1) 
+	    goto ret0;
+
+	del = succs[lFound];
+	flag = (del->fullyLinked && (del->topLevel == lFound) && !del->marked);
+
+	if (isMarked || ((lFound != -1) && flag)) {
+	    if (!isMarked) {
+		topLevel = del->topLevel;
+		lock(&del->lock);
+		if (del->marked) {
+		    unlock(&del->lock);
+		    goto ret0;
+		}
+		del->marked = 1;
+		isMarked = 1;
+	    }
+	
+	    highestLocked = -1;
+	    valid = 1;
+	    prev = NULL;
+	    for (level = 0; valid && (level <= topLevel); level++) {
+		pred = preds[level];
+		succ = succs[level];
+		if (pred != prev) {
+		    lock(&pred->lock);
+		    prev = pred;
+		    highestLocked = level;
+		}
+		valid = (!pred->marked) && (pred->nexts[level] == succ);
+	    }
+	    if (!valid) { 
+		for (int i = 0; i <= highestLocked; i++)      
+		    unlock(&preds[i]->lock);
+		    
+		continue;
+	    }
+	    
+	    for (level = del->topLevel; level >= 0; level--)
+		preds[level]->nexts[level] = del->nexts[level];
+	    
+	    unlock(&del->lock);
+	    // unlock the updated nodes
+	    unlock_preds(preds, highestLocked);
+	} else {
+	    goto ret0;
+	}
+    }
+    *node = del;
+#ifdef HP
+    retire_node(q->hp, del);
+#endif
+    // clean threads working area.
+    clean_ptrs(q, tid);
+    return 1;
+
+ret0:
+    // clean threads working area.
+    clean_ptrs(q, tid);
+    return 0;
 }
 
 
@@ -519,11 +597,11 @@ num_digits (unsigned int i)
     return i > 0 ? (int) log10 ((double) i) + 1 : 1;
 }
 
-static void
+void
 sq_print (sq_t *q)
 {
     sq_node_t *n, *bottom;
-    char *seps[] = {"------", "-----", "----"};
+    char *seps[] = {"---------", "------", "-----", "----"};
 
     for (int i = q->maxLevel - 1; i >= 0; i--) {
 	printf("l%2d: ", i);
@@ -537,6 +615,7 @@ sq_print (sq_t *q)
 	while (n != NULL) {
 	    while (bottom != n)
 	    {
+		assert(num_digits(bottom->key) -1 < 4);
 		printf("%s", seps[num_digits(bottom->key) -1 ]);
 		bottom = bottom->nexts[0];
 	    }

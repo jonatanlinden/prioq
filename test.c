@@ -3,7 +3,7 @@
  *
  * Author: Jonatan Linden <jonatan.linden@it.uu.se>
  *
- * Time-stamp: <2013-01-22 13:45:05 jonatanlinden>
+ * Time-stamp: <2013-01-30 15:09:26 jonatanlinden>
  */
 
 #define _GNU_SOURCE
@@ -81,9 +81,11 @@ main (int argc, char **argv)
 	cpu_map[i] = i;
 
     // initialize the queue.
-    E_0(sq = sq_init(11, 0.0, DBL_MAX, nthreads));
+    //E_0(sq = sq_init(3, 0.0, DBL_MAX, nthreads));
+    E_0(sq = sq_init(3, 0, INT_MAX, nthreads));
+    
 
-    for (int i = 0; i < 4096; i++)
+    for (int i = 1; i < 4096; i++)
 	sq_add(sq, i, i, 0);
 
     for (int i = 0; i < nthreads; i++)
@@ -104,7 +106,12 @@ main (int argc, char **argv)
     for (int i = 0; i < nthreads; i++)
 	E_en(pthread_join(t_args[i].thread, NULL));
 
-
+    sq_node_t *oldnode;
+    for (int i = 1; i < 4096; i++)
+	sq_del(sq, i, 1, &oldnode, 0);
+    
+    sq_print(sq);
+    
     printf("****** Stats *******\n");
 
     int sum = 0;
@@ -126,8 +133,11 @@ static inline int
 work(thread_args_t *ta)
 {
     int old;
+
     int idx = gsl_rng_uniform (ta->rng);
     return sq_update(sq, idx, idx, &old, ta->tid);
+
+    return 0;
 }
 
 

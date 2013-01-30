@@ -5,7 +5,7 @@
 #include <gsl/gsl_rng.h>
 #include "hp.h"
 
-#define key_t double
+#define key_t int
 #define val_t int
 
 #define NULL_VAL 0
@@ -57,8 +57,20 @@ sq_update(sq_t *q, key_t newkey, val_t newval, val_t *old, const int tid);
 extern int
 sq_delmin(sq_t *q, sq_node_t **node, const int tid);
 
+
+/* Delete node with key key if it exists. Set node to point to the removed node. Usage of addr is currently unimplemented. 
+Return 1 if success, otherwise 0.
+*/
+extern int
+sq_del (sq_t *q, const key_t key, const sq_node_t *addr, sq_node_t **node, const int tid);
+
+extern void
+sq_print (sq_t *q);
+
 extern void
 sq_destroy(sq_t *q);
+
+
 
 
 #endif //PRIOQ_SIMPLE_H
